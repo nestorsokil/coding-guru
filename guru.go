@@ -4,7 +4,6 @@ import (
 	"strings"
 	"net/http"
 	"net/url"
-	"golang.org/x/net/html"
 	"io"
 	"github.com/PuerkitoBio/goquery"
 	"fmt"
@@ -33,7 +32,7 @@ type WebCrawlerCodeGuru struct {
 }
 
 func (g *WebCrawlerCodeGuru) FindAnswer(ctx context.Context, question string) (answer string, err error) {
-	results, errors := g.answerAsync(question)
+	results, errors := g.answerAsync(ctx, question)
 	select {
 	case answer := <- results:
 		return answer, nil
@@ -45,7 +44,7 @@ func (g *WebCrawlerCodeGuru) FindAnswer(ctx context.Context, question string) (a
 	}
 }
 
-func (g *WebCrawlerCodeGuru) answerAsync(question string) (<-chan string, <-chan error) {
+func (g *WebCrawlerCodeGuru) answerAsync(ctx context.Context, question string) (<-chan string, <-chan error) {
 	resultChan := make(chan string, 1)
 	errChan := make(chan error, 1)
 	go func() {
@@ -66,7 +65,11 @@ func (g *WebCrawlerCodeGuru) answerAsync(question string) (<-chan string, <-chan
 			return
 		}
 		defer searchResp.Body.Close()
-		links := parseQuestionLinks(searchResp.Body, 1)
+		links, err := parseQuestionLinks(ctx, searchResp.Body, 1)
+		if err != nil {
+			errChan <- err
+			return
+		}
 		if len(links) == 0 {
 			resultChan <- NoResults
 			g.questionCache.Put(question, NoResults, NoResultsCacheTTLSeconds)
@@ -110,46 +113,34 @@ func fmtSearchString(query string) string {
 	return GoogleSearchString + url.QueryEscape(query)
 }
 
-// TODO rewrite using goquery
-func parseQuestionLinks(htmlReader io.Reader, maxResults int) []string {
-	tokenizer := html.NewTokenizer(htmlReader)
+func parseQuestionLinks(ctx context.Context, htmlReader io.Reader, maxResults int) ([]string, error) {
+	doc, err := goquery.NewDocumentFromReader(htmlReader)
+	if err != nil {
+		return nil, err
+	}
 	var links []string
 	var found = 0
-	for {
-		if found >= maxResults {
-			return links
-		}
-		tokenType := tokenizer.Next()
-		switch tokenType {
-		case html.ErrorToken:
-			return links
-		case html.StartTagToken:
-			token := tokenizer.Token()
-			if token.Data == "a" {
-				ok, href := getHref(token)
-				if ok && strings.Contains(href, "/questions/") {
+	doc.Find(".r a").EachWithBreak(
+		func(_ int, next *goquery.Selection) bool {
+			select {
+			case <-ctx.Done():
+				err = ctx.Err()
+				return false
+			default:
+				href, exists := next.Attr("href")
+				if exists && strings.Contains(href, "/questions/") {
 					href = strings.Replace(href, "/url?q=", "", 1)
 					link := strings.Split(href, "&sa")[0]
 					links = append(links, link)
 					found = found + 1
+					if found >= maxResults {
+						return false
+					}
 				}
+				return true
 			}
-		}
-	}
-}
-
-func getHref(t html.Token) (ok bool, href string) {
-	for _, a := range t.Attr {
-		if a.Key == "class" {
-			if a.Val != ".l" {
-				return false, ""
-			}
-		}
-		if a.Key == "href" {
-			return true, a.Val
-		}
-	}
-	return false, ""
+		})
+	return links, err
 }
 
 func parseAnswers(htmlReader io.Reader) (string, error)  {

@@ -12,8 +12,8 @@ import (
 
 const (
 	MaxQueryLen                 = 150
-	LimiterOpName               = "request"
 	LimiterDefaultTimeoutMillis = 10000
+	LimiterOpName               = "request"
 	UnknownError                = "Something went wrong."
 	InputTooLong                = "Your request is too long."
 	NoInputProvided		    = "Please provide your query in plaintext."
