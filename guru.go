@@ -9,24 +9,31 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"fmt"
 	"context"
+	"log"
 )
 
 const (
 	NoResults = "Could not find what you were looking for."
 	GoogleSearchString = "https://google.com/search?q=site:stackoverflow.com%20"
+	CacheTTLSeconds = 3600
+	NoResultsCacheTTLSeconds = 1800
 )
 
 type CodeGuru interface {
-	findAnswer(ctx context.Context, question string) (answer string, err error)
+	FindAnswer(ctx context.Context, question string) (answer string, err error)
+}
+
+func NewGuru() CodeGuru {
+	return &WebCrawlerCodeGuru{questionCache:NewCache(1000), webLinkCache:NewCache(1000)}
 }
 
 type WebCrawlerCodeGuru struct {
-	// TODO test
-	// TODO in-memory cache
+	questionCache QueryCache
+	webLinkCache QueryCache
 }
 
-func (*WebCrawlerCodeGuru) findAnswer(ctx context.Context, question string) (answer string, err error) {
-	results, errors := answerAsync(question)
+func (g *WebCrawlerCodeGuru) FindAnswer(ctx context.Context, question string) (answer string, err error) {
+	results, errors := g.answerAsync(question)
 	select {
 	case answer := <- results:
 		return answer, nil
@@ -38,12 +45,20 @@ func (*WebCrawlerCodeGuru) findAnswer(ctx context.Context, question string) (ans
 	}
 }
 
-func answerAsync(question string) (<-chan string, <-chan error) {
+func (g *WebCrawlerCodeGuru) answerAsync(question string) (<-chan string, <-chan error) {
 	resultChan := make(chan string, 1)
 	errChan := make(chan error, 1)
 	go func() {
 		defer close(resultChan)
 		defer close(errChan)
+
+		cached, hit := g.questionCache.Get(question)
+		if hit {
+			log.Printf("[INFO] Hit questions cache for '%s'", question)
+			resultChan <- cached
+			return
+		}
+
 		searchLink := fmtSearchString(question)
 		searchResp, err := http.Get(searchLink)
 		if err != nil {
@@ -54,9 +69,18 @@ func answerAsync(question string) (<-chan string, <-chan error) {
 		links := parseQuestionLinks(searchResp.Body, 1)
 		if len(links) == 0 {
 			resultChan <- NoResults
+			g.questionCache.Put(question, NoResults, NoResultsCacheTTLSeconds)
 			return
 		}
 		link := links[0]
+		cached, hit = g.webLinkCache.Get(link)
+		if hit {
+			log.Printf("[INFO] Hit link cache for '%s'", link)
+			resultChan <- cached
+			g.questionCache.Put(question, cached, CacheTTLSeconds)
+			return
+		}
+
 		questionResp, err := http.Get(link + "?answertab=votes")
 		if err != nil {
 			errChan <- err
@@ -70,9 +94,13 @@ func answerAsync(question string) (<-chan string, <-chan error) {
 		}
 		if answer == "" {
 			resultChan <- NoResults
+			g.questionCache.Put(question, NoResults, NoResultsCacheTTLSeconds)
+			g.questionCache.Put(link, NoResults, NoResultsCacheTTLSeconds)
 			return
 		}
 		resultChan <- answer
+		g.questionCache.Put(question, answer, CacheTTLSeconds)
+		g.webLinkCache.Put(link, answer, CacheTTLSeconds)
 	}()
 
 	return resultChan, errChan
@@ -101,7 +129,8 @@ func parseQuestionLinks(htmlReader io.Reader, maxResults int) []string {
 				ok, href := getHref(token)
 				if ok && strings.Contains(href, "/questions/") {
 					href = strings.Replace(href, "/url?q=", "", 1)
-					links = append(links, href)
+					link := strings.Split(href, "&sa")[0]
+					links = append(links, link)
 					found = found + 1
 				}
 			}
