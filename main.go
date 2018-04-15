@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
-	"github.com/go-telegram-bot-api/telegram-bot-api"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
-	"strconv"
+
+	"github.com/go-telegram-bot-api/telegram-bot-api"
 )
 
 const (
@@ -16,15 +17,15 @@ const (
 	LimiterOpName               = "request"
 	UnknownError                = "Something went wrong."
 	InputTooLong                = "Your request is too long."
-	NoInputProvided		    = "Please provide your query in plaintext."
+	NoInputProvided             = "Please provide your query in plaintext."
 	TelegramKeyEnv              = "TELEGRAM_KEY_CODING_GURU_BOT"
-	DevModeEnv 		    = "DEV_MODE_CODING_GURU_BOT"
+	DevModeEnv                  = "DEV_MODE_CODING_GURU_BOT"
 	HelpString                  = `Just type your query and send!
 Examples:
 - c++ check if element in list
 - schedule task java
 - binary search go
-- docker syncSet env
+- docker set env
 `
 )
 
