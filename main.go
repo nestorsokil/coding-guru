@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"github.com/go-telegram-bot-api/telegram-bot-api"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/go-telegram-bot-api/telegram-bot-api"
 )
 
 const (
@@ -17,9 +18,14 @@ const (
 	LimiterOpName               = "request"
 	UnknownError                = "Something went wrong."
 	InputTooLong                = "Your request is too long."
-	NoInputProvided             = "Please provide your query in plaintext."
+	NoInputProvided		    = "Please provide your query in plaintext."
 	TelegramKeyEnv              = "TELEGRAM_KEY_CODING_GURU_BOT"
 	DevModeEnv                  = "DEV_MODE_CODING_GURU_BOT"
+	WebHookHostEnv              = "WEB_HOOK_HOST_CODING_GURU_BOT"
+	WebHookListenPortEnv        = "WEB_HOOK_LISTEN_PORT_CODING_GURU_BOT"
+	UseTLSEnv                   = "USE_TLS_ENCRYPTION_CODING_GURU_BOT"
+	TLSCertFileEnv              = "TLS_CERT_FILE_CODING_GURU_BOT"
+	TLSKeyFileEnv               = "TLS_KEY_FILE_CODING_GURU_BOT"
 	HelpString                  = `Just type your query and send!
 Examples:
 - c++ check if element in list
@@ -32,7 +38,7 @@ Examples:
 func main() {
 	telegramKey := os.Getenv(TelegramKeyEnv)
 	if len(telegramKey) == 0 {
-		log.Fatalf("[FATAL] No Telegram Key provided. Please syncSet %s environment variable.", TelegramKeyEnv)
+		log.Fatalf("[FATAL] No Telegram Key provided. Please set %s environment variable.", TelegramKeyEnv)
 	}
 	bot, err := tgbotapi.NewBotAPI(telegramKey)
 	if err != nil {
@@ -60,7 +66,53 @@ func pollingChannel(bot *tgbotapi.BotAPI) tgbotapi.UpdatesChannel {
 }
 
 func webHookChannel(bot *tgbotapi.BotAPI) tgbotapi.UpdatesChannel {
-	panic("implement me")
+	log.Printf("[INFO] Registering a webhook-based updates channel...")
+	link := os.Getenv(WebHookHostEnv)
+	if len(link) == 0 {
+		log.Fatalf("[FATAL] No host for webhook provided. Please set %s environment variable.", WebHookHostEnv)
+	}
+	port := os.Getenv(WebHookListenPortEnv)
+	if len(link) == 0 {
+		log.Fatalf("[FATAL] No port for webhook provided. Please set %s environment variable.", WebHookListenPortEnv)
+	}
+
+	address := fmt.Sprintf("0.0.0.0:%s", port)
+	var webHookConfig tgbotapi.WebhookConfig
+	var httpServeFunc func()
+	useTls := len(os.Getenv(UseTLSEnv)) > 0
+	if useTls {
+		certFile := os.Getenv(TLSCertFileEnv)
+		if len(certFile) == 0 {
+			log.Fatalf("[FATAL] No cert file provided. Please set %s environment variable.", TLSCertFileEnv)
+		}
+		keyFile := os.Getenv(TLSKeyFileEnv)
+		if len(keyFile) == 0 {
+			log.Fatalf("[FATAL] No cert key file provided. Please set %s environment variable.", TLSKeyFileEnv)
+		}
+		webHookConfig = tgbotapi.NewWebhookWithCert(link+bot.Token, certFile)
+		httpServeFunc = func() {
+			go http.ListenAndServeTLS(address, certFile, keyFile, nil)
+		}
+	} else {
+		webHookConfig = tgbotapi.NewWebhook(link + bot.Token)
+		httpServeFunc = func() {
+			go http.ListenAndServe(address, nil)
+		}
+	}
+	_, err := bot.SetWebhook(webHookConfig)
+	if err != nil {
+		log.Fatalf("[FATAL] Could not register web hook - %v", err)
+	}
+	info, err := bot.GetWebhookInfo()
+	if err != nil {
+		log.Fatalf("[FATAL] Could not get web hook info - %v", err)
+	}
+	if info.LastErrorDate != 0 {
+		log.Fatalf("[FATAL] Web hook callback failed - %v", info.LastErrorMessage)
+	}
+	channel := bot.ListenForWebhook("/" + bot.Token)
+	httpServeFunc()
+	return channel
 }
 
 func processUpdates(bot *tgbotapi.BotAPI, updates tgbotapi.UpdatesChannel) {
