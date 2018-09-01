@@ -2,8 +2,9 @@
 
 Coding Guru is a Telegram Bot that answers all of your coding questions.
 
-App can be run using:
-- `make docker-build && docker run --name codeguru -e TELEGRAM_KEY_CODING_GURU_BOT=${apikey} coding-guru:latest`
+App can be built and started using docker:
+
+`docker build -t guru:latest && docker run --name guru-instance -e TELEGRAM_KEY_CODING_GURU_BOT=${apikey} guru:latest`
 
 Env vars:
 - `TELEGRAM_KEY_CODING_GURU_BOT` - telegram API key
