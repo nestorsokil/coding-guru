@@ -24,3 +24,8 @@ gen
 Gopkg.lock
 vendor
 coding-guru
+
+# Vim temp files
+*~
+*.swp
+*.swo
