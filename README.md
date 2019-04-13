@@ -15,4 +15,4 @@ Env vars:
 - `TLS_CERT_FILE_CODING_GURU_BOT` - TLS cert file
 - `TLS_KEY_FILE_CODING_GURU_BOT` - TLS cert key file
 
-Bot is available here: https://t.me/codinggurubot
+Bot is available here (now offline): https://t.me/codinggurubot
